@@ -20,7 +20,7 @@ If you upgrade the SDK, re-verify before trusting this.
     SearchResult:    results, search_id, session_id, usage, warnings
     WebSearchResult: url, title, publish_date, excerpts (a LIST of str)
 
-DESIGN NOTE — why there is no include_domains here.
+DESIGN NOTE: why there is no include_domains here.
 A smoke test on 2026-08-08 compared registry-only filtering against
 unfiltered search. Filtering made results markedly WORSE.
 Official registries are query-driven databases, not crawlable documents:
@@ -41,7 +41,7 @@ from parallel import Parallel
 from .config import MODEL
 
 # Aggregators that mirror registry data as crawlable, entity-level pages.
-# Kept for reference and for scoring source authority downstream — NOT used
+# Kept for reference and for scoring source authority downstream. NOT used
 # as an include_domains filter. See DESIGN NOTE above.
 REGISTRY_MIRRORS = (
     "trademarks.justia.com",
@@ -62,7 +62,7 @@ EXCLUDED_DOMAINS = [
 
 # USPTO serial numbers are 8 digits. Registration numbers are NOT fixed at 7:
 # older marks are shorter (Fanta, registered 1949, is 513565) and sources
-# zero-pad inconsistently. A 7-digit-only pattern silently dropped these —
+# zero-pad inconsistently. A 7-digit-only pattern silently dropped these:
 # found when the agent reported a registration number our harvester had not
 # captured, leaving us unable to tell whether it was read or invented.
 _SERIAL_RE = re.compile(r"[Ss]erial\D{0,20}(\d{8})")
@@ -131,7 +131,7 @@ _OBJECTIVE_BY_TYPE = {
         "recording, which performing rights organisation represents them, and "
         "what synchronisation and master use licences are required to use it "
         "in a film or television production. This is a musical work, not a "
-        "trademark — ignore trademark registrations for similar words."
+        "trademark; ignore trademark registrations for similar words."
     ),
     "person": (
         "Identify who controls the likeness, name and publicity rights for "
@@ -145,7 +145,7 @@ _OBJECTIVE_DEFAULT = (
     "registered owner name, the trademark serial or registration number, "
     "whether the registration is currently active, and what licence is "
     "required to depict it in a film or television production. Report only "
-    "records for this exact entity — ignore similarly named marks belonging "
+    "records for this exact entity; ignore similarly named marks belonging "
     "to other owners."
 )
 
@@ -172,7 +172,7 @@ def research_clearance(entity: str, entity_type: str, session_id: str = "") -> d
         sources: list of sources, each with url, title, publish_date,
             excerpts, is_registry_mirror, and its OWN identifiers
             (serial_numbers, registration_numbers, tsdr_urls). Identifiers
-            belong to the source that stated them — never combine them
+            belong to the source that stated them; never combine them
             across sources or attach one to an entity the source is not
             clearly about.
         search_id, session_id: trace identifiers, kept for audit
@@ -198,7 +198,7 @@ def research_clearance(entity: str, entity_type: str, session_id: str = "") -> d
         "client_model": MODEL,
         "advanced_settings": {
             "max_results": 8,
-            # No include_domains — see DESIGN NOTE. Excluding forums only.
+            # No include_domains, see DESIGN NOTE. Excluding forums only.
             "source_policy": {"exclude_domains": EXCLUDED_DOMAINS},
             "excerpt_settings": {"max_chars_per_result": 2000},
         },

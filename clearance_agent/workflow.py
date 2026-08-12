@@ -2,7 +2,7 @@
 
 Why this exists: with a plain Agent, the model DECIDES to call the tool once
 per entity. It complied on three entities. At 120 entities under context
-pressure that is a model decision, not a guarantee — and the hackathon scores
+pressure that is a model decision, not a guarantee, and the hackathon scores
 a "deterministic, multi-step agent". A graph edge cannot decide to bundle.
 
 Verified against google-adk 2.6.3 by introspection:
@@ -65,7 +65,7 @@ class ResearchNode(Node):
 
     parallel_worker=True means the runtime fans node_input across workers and
     calls run_node_impl once per item. The width is therefore driven by the
-    data, not fixed at graph-build time — which matters because we do not know
+    data, not fixed at graph-build time, which matters because we do not know
     how many entities a screenplay holds until we have parsed it.
 
     max_parallel_workers caps concurrency so a 200-entity script does not open
@@ -103,7 +103,7 @@ class VerifyNode(Node):
     Chained directly after ResearchNode, inside the fan-out, rather than as
     a single pass over the collected list after JoinNode. Two reasons:
 
-    1. Verification is per-entity — checking entity A's claims never needs
+    1. Verification is per-entity: checking entity A's claims never needs
        entity B's sources. There is no cross-entity work this stage could
        do that placing it after the join would unlock.
     2. ADK's _ParallelWorker (google/adk/workflow/_parallel_worker.py)
@@ -120,7 +120,7 @@ class VerifyNode(Node):
     instead of raw research results.
 
     Chaining two parallel_worker nodes back to back was not previously
-    tried in this codebase — verified working here by running the workflow
+    tried in this codebase; verified working here by running the workflow
     end to end (see smoke_test_verification.py).
     """
 
@@ -148,12 +148,12 @@ class VerifyNode(Node):
 # Tie-break order for merging duplicate entities that extraction classified
 # differently. Lowest index wins. "song"/"person"/"location" have dedicated
 # query templates in parallel_tool.py (_QUERIES_BY_TYPE) built specifically
-# to avoid the documented disambiguation failures — a trademark-shaped query
+# to avoid the documented disambiguation failures: a trademark-shaped query
 # against a song title returned NAPSTER for "Bohemian Rhapsody". Misrouting
 # one of THESE three costs correctness, so they outrank the generic group.
 # "brand"/"business"/"trademark" all fall through to the same
 # _default_queries in parallel_tool.py, so which of the three wins doesn't
-# change what gets searched — only the label shown in the eventual report.
+# change what gets searched; only the label shown in the eventual report.
 # "trademark" is kept ahead of "brand"/"business" there because it's the
 # more legally specific claim, and a downstream report reading "trademark"
 # is a stronger, more actionable statement than the generic "business".
@@ -195,7 +195,7 @@ def prepare_entities(entities: list | None = None, script_path: str = "") -> lis
 
     Exists because parallel_worker fans over a LIST produced upstream. Without
     this node the research node received the whole request once instead of
-    once per entity — confirmed empirically.
+    once per entity, confirmed empirically.
 
     Bound to session state by parameter name, so `entities` and `script_path`
     are filled from state["entities"] / state["script_path"]. Falls back to
@@ -231,10 +231,10 @@ def _build_report_node(node_input: Any) -> str:
     parameter named node_input only fires in parameter_binding="state"
     mode (see _function_node.py's _bind_parameters docstring: "In 'state'
     mode, the node_input parameter is passed through directly"). So this
-    node is wired below with parameter_binding="state", not "node_input" —
+    node is wired below with parameter_binding="state", not "node_input",
     despite the parameter being named node_input. That payload, downstream
     of a JoinNode, is a dict keyed by the upstream node's name (here
-    {"verify_findings": [...]}) — build_report() already accepts that
+    {"verify_findings": [...]}); build_report() already accepts that
     shape without assuming the key, since the key is just verify_findings'
     node name and shouldn't be load-bearing here.
     """
@@ -252,7 +252,7 @@ def build_workflow(max_concurrency: int = 8) -> Workflow:
         func=prepare_entities,
         # 'state' binds function parameters by NAME from session state, so
         # `entities` here is filled from state["entities"]. ('node_input'
-        # binds by name from the incoming payload — it does not hand you the
+        # binds by name from the incoming payload; it does not hand you the
         # payload itself, which is what the first attempt got wrong.)
         parameter_binding="state",
     )
@@ -273,7 +273,7 @@ def build_workflow(max_concurrency: int = 8) -> Workflow:
     report = FunctionNode(
         name="build_report",
         func=_build_report_node,
-        # 'state' binding, NOT 'node_input' binding — despite the function's
+        # 'state' binding, NOT 'node_input' binding, despite the function's
         # parameter being named node_input. See _build_report_node's
         # docstring: in 'state' mode a parameter literally named node_input
         # is special-cased to receive the raw incoming payload directly;

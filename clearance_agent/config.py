@@ -1,8 +1,8 @@
 """Single source of truth for model choice and env validation.
 
 Model notes (2026-08-08):
-  gemini-2.5-flash is rejected for keys created now — "no longer available
-  to new users" — even though it still appears in models.list(). The list
+  gemini-2.5-flash is rejected for keys created now: "no longer available
+  to new users," even though it still appears in models.list(). The list
   endpoint is broader than what a given key can call, so presence in the
   list is not proof of access.
 
@@ -21,11 +21,11 @@ from google.genai import types
 MODEL = os.environ.get("CLEARANCE_MODEL", "gemini-3.6-flash")
 
 # Screenplays contain violence, hate speech, sexual content and harassment
-# as ordinary dramatic material — a scene doesn't stop needing clearance
+# as ordinary dramatic material; a scene doesn't stop needing clearance
 # research because it's rough. Default Gemini safety filters operate on
 # the CONTENT being processed, not on whether the caller is generating vs.
 # analyzing it, so a violent action line or a slur in dialogue can trip a
-# block on a call that is only asking the model to extract entity names —
+# block on a call that is only asking the model to extract entity names;
 # a false block here reads as "no entities found," which is
 # indistinguishable from a script that genuinely has nothing to clear.
 # That silent-failure shape is worse than the tool refusing outright.
@@ -36,12 +36,12 @@ MODEL = os.environ.get("CLEARANCE_MODEL", "gemini-3.6-flash")
 # GenerateContentConfig(safety_settings=[...]). BLOCK_NONE (not OFF) is
 # used deliberately: it still evaluates and annotates harm categories
 # (so a genuinely disqualifying issue remains visible in the response)
-# while never blocking on probability — OFF disables evaluation entirely,
+# while never blocking on probability. OFF disables evaluation entirely,
 # which trades away that visibility for no benefit this product needs.
 #
 # Only the four categories screenplay content actually exercises are
 # touched. HARM_CATEGORY_CIVIC_INTEGRITY and HARM_CATEGORY_JAILBREAK are
-# left at their default threshold — neither is what "violence, slurs, and
+# left at their default threshold: neither is what "violence, slurs, and
 # adult content" in a script would trip, and loosening categories with no
 # evidence they're the problem is scope creep on a safety-relevant setting.
 SAFETY_SETTINGS = [
@@ -80,7 +80,7 @@ def describe_block_reason(response) -> str | None:
     Used at both generate_content call sites (extract_entities,
     verify_finding) so a safety-filter block on rough screenplay content
     is diagnosed as exactly that, not reported as an opaque "Gemini
-    returned nothing" — the whole point of configuring SAFETY_SETTINGS is
+    returned nothing"; the whole point of configuring SAFETY_SETTINGS is
     that a false block should be visible and traceable, not swallowed.
     """
     feedback = getattr(response, "prompt_feedback", None)

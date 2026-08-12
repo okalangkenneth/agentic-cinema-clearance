@@ -1,7 +1,7 @@
 # Clearance Agent
 
 Reads a screenplay and tells a production what it needs to clear before it
-can shoot — who currently owns each brand, song, trademark, likeness and
+can shoot: who currently owns each brand, song, trademark, likeness and
 location that appears on the page, and how risky each one is.
 
 Built for **Agentic Cinema: The Blockbuster Hackathon** (Parallel track).
@@ -10,7 +10,7 @@ Built for **Agentic Cinema: The Blockbuster Hackathon** (Parallel track).
 
 Every real-world thing in a screenplay is a rights question. A can of Coke
 on a table, a song on a jukebox, a real bar the characters walk into, a
-celebrity mentioned by name — each one needs clearing before the camera
+celebrity mentioned by name: each one needs clearing before the camera
 rolls, and getting it wrong means reshoots, a delayed release, or a suit.
 
 Productions send scripts to clearance houses and pay thousands of dollars
@@ -19,20 +19,20 @@ find the entity, find who owns it now, find the registration, cite the
 source. It is slow because it is done by hand.
 
 This agent does that research pass and returns a cited, risk-scored report.
-It does not replace production counsel — it gives counsel a head start with
+It does not replace production counsel. It gives counsel a head start with
 the sources already attached.
 
 ## What it produces
 
 For every entity found in the script:
 
-- **Current rights holder** — not the historical one. Catalogues change
+- **Current rights holder**, not the historical one. Catalogues change
   hands; the answer that matters is who owns it today.
 - **Registration or serial number**, where one exists.
 - **Registration status** and **what licence would be required**.
 - **A RED / AMBER / GREEN risk rating** with the reasoning stated.
 - **A source URL for every single claim.**
-- **Near-misses that were considered and discarded**, and why — a
+- **Near-misses that were considered and discarded**, and why. A
   same-named entity in a different class is the classic clearance trap.
 
 Anything the sources do not establish is labelled **"not established by
@@ -47,7 +47,7 @@ because it produces confident text a production might act on.
 
 So findings are not trusted on the model's say-so. After research, a
 verification stage checks every drafted claim **against the specific source
-it cites** — not against a pool of all sources for that entity. If a claim's
+it cites**, not against a pool of all sources for that entity. If a claim's
 value does not actually appear in that one source's own excerpts, the claim
 does not survive. This is a programmatic check, not a second request to the
 model to be more careful.
@@ -79,16 +79,22 @@ Every stage above is implemented as a `google.adk.Workflow` graph
 (`clearance_agent/workflow.py`): a `FunctionNode` handles parse/extract/dedup,
 two chained `parallel_worker` nodes fan research and verification out across
 entities concurrently, and a `JoinNode` guarantees no partial entity set can
-reach the report — a graph edge cannot decide to bundle entities the way a
-model deciding to loop over a tool call can. Measured on a 3-entity run: 5.4s
-concurrent versus ~15s sequential, completing out of input order.
+reach the report. A graph edge cannot decide to bundle entities the way a
+model deciding to loop over a tool call can. `run_pipeline.py` (below) drives
+this exact graph through a real ADK `Runner`, on the shipped sample script.
 
-`adk run clearance_agent` (below) talks to a simpler `Agent` wrapping the
-same `research_clearance` tool, where the model itself decides to call the
-tool once per entity — useful for interactive, ad-hoc questions, but not the
-deterministic graph. The graph is exercised directly via its component
-functions in the pipeline smoke tests; there is no single shipped command
-that drives a full script through the graph via `Runner` end to end.
+Measured on 9 entities (`examples/sample_script.fdx`, full pipeline): after
+extraction (~13s), research and verification, the fanned stages, took 65.5s
+running concurrently versus 184.0s for the identical 9 entities through the
+same graph run sequentially (`max_concurrency=1`). That is a ~2.8x speedup.
+Total wall-clock for the full run: 78.8s. This supersedes an earlier
+3-entity, research-only figure, since this run covers more entities and both
+fanned stages on the same graph.
+
+`adk run clearance_agent` talks to a simpler `Agent` wrapping the same
+`research_clearance` tool instead, where the model itself decides to call the
+tool once per entity. That is useful for interactive, ad-hoc questions, but
+it is not the deterministic graph.
 
 ## Stack
 
@@ -97,7 +103,7 @@ that drives a full script through the graph via `Runner` end to end.
 | Google Agent Development Kit (ADK) 2.x | Workflow graph, concurrent fan-out/fan-in |
 | Gemini | Entity extraction and claim drafting, both with structured output |
 | Vertex AI Agent Engine | Hosting |
-| Parallel Search API | Live rights research — the load-bearing search layer |
+| Parallel Search API | Live rights research, the load-bearing search layer |
 | Google Secret Manager | API key storage for the deployed agent |
 
 ## Setup
@@ -111,20 +117,44 @@ cp .env.example .env             # then fill in real values (Windows: `copy` ins
 ```
 
 You need a Parallel API key (https://platform.parallel.ai) and Gemini
-access — either an AI Studio key for local runs, or a Google Cloud project
+access: either an AI Studio key for local runs, or a Google Cloud project
 with Vertex AI enabled.
 
 ## Running it
 
-**Search quality on its own**, before any agent machinery — the fastest way
+**The full pipeline, script in to report out.** This is the deterministic
+graph described above, actually running:
+
+```bash
+python run_pipeline.py examples/sample_script.fdx
+```
+
+Prints each entity as its research and verification finish, out of input
+order, because that is the visible evidence the fan-out is real rather than
+a model looping over a tool call. It then writes a report HTML file and
+prints its path. `examples/sample_script.fdx` ships in this repo, so this
+runs on a fresh clone with no setup beyond `.env`.
+
+**On a free-tier AI Studio key, this will likely 429.** The concurrent
+verification fan-out sends several `generate_content` calls within the same
+few seconds, and the free tier caps `gemini-3.6-flash` at 5 requests/minute,
+a limit discovered running this exact command and separate from the
+already-documented 20/day cap. `run_pipeline.py` reports this clearly rather
+than as a raw traceback, though the ADK runtime itself also logs one to
+stderr and that part is not suppressible from here. The measurement above
+was taken against Vertex (`GOOGLE_GENAI_USE_VERTEXAI=TRUE`,
+`CLEARANCE_MODEL=gemini-2.5-flash`), which has real headroom. A paid AI
+Studio key would too.
+
+**Search quality on its own**, before any agent machinery. The fastest way
 to see whether the research layer actually returns rights-bearing results:
 
 ```bash
 python smoke_test_parallel.py
 ```
 
-**The agent locally, interactively** (model decides tool calls — see the
-caveat above, this is not the deterministic graph):
+**The agent locally, interactively.** The model decides tool calls here, so
+this is not the deterministic graph (see the caveat above):
 
 ```bash
 adk run clearance_agent
@@ -133,20 +163,19 @@ adk run clearance_agent
 Then ask it, for example:
 `Research clearance risk for Coca-Cola, Bohemian Rhapsody, and the Nike swoosh.`
 
-**The pipeline stages, exercised directly** — parsing, extraction, dedup,
-research, verification, and report rendering, each proven against real
-API calls:
+**Individual pipeline stages, exercised directly.** Useful when developing a
+single stage in isolation, each proven against real API calls:
 
 ```bash
-python smoke_test_script_parsing.py    # requires a local .fdx fixture — see note below
+python smoke_test_script_parsing.py    # requires a local .fdx fixture, not shipped
 python smoke_test_verification.py
 python smoke_test_report.py            # writes HTML output to scratch/
 ```
 
-`smoke_test_script_parsing.py` reads a fixture at `scratch/test_script.fdx`.
-`scratch/` is gitignored and not shipped in this repo, so this script will
-not run out of the box on a fresh clone — point `FIXTURE` at your own `.fdx`
-screenplay to exercise it, or read the file to see what it checks for.
+`smoke_test_script_parsing.py` reads a fixture at `scratch/test_script.fdx`,
+which is gitignored dev material rather than `examples/sample_script.fdx`.
+Point `FIXTURE` at the shipped sample (or your own `.fdx`) to run it on a
+fresh clone.
 
 **Deployed:**
 
@@ -155,18 +184,25 @@ python deploy.py          # deploys to Vertex AI Agent Engine
 python query_remote.py    # queries the deployed agent
 ```
 
+The deployed agent currently runs the same simple `Agent` as `adk run`
+above, not the `Workflow` graph. Deploying the graph instead is a real open
+question, not addressed here.
+
 ## Notes on scope
 
 The entity taxonomy covers brands, businesses, trademarks, songs, people
-and locations. Musical groups currently classify as `person` — a known gap.
+and locations. Musical groups currently classify as `person`, a known gap.
 
 Extraction is not fully deterministic between runs: the same unambiguous
 entity can occasionally be typed differently. This affects the label and
 which query template routes the search, not whether the entity is found.
-Deduplication merges exact name matches only; near-identical names are
-deliberately left unmerged, because wrongly merging two distinct
-real-world entities loses a clearance risk, and that is the failure this
-tool exists to prevent.
+
+Deduplication merges exact name matches only. Near-identical names are
+deliberately left unmerged, because wrongly merging two distinct real-world
+entities loses a clearance risk, and that is the failure this tool exists to
+prevent. The trade-off is visible in practice: a single brand mentioned
+three different ways in a script can produce three separate research jobs
+and three rows in the report.
 
 ## Licence
 

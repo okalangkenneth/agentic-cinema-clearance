@@ -6,12 +6,12 @@ with this repo, so parse_fdx is built and tested against a synthetic fixture
 (scratch/, gitignored) rather than trusted from memory. A Paragraph can hold
 several <Text> runs (one per formatting change mid-line, e.g. a bolded word),
 so text must be joined across ALL Text children of a paragraph, not just the
-first — a single-run read would silently truncate any line with inline
+first; a single-run read would silently truncate any line with inline
 formatting.
 
 Verified against the installed SDK by introspection (2026-08-11):
     google.genai.Client() reads GOOGLE_API_KEY / GOOGLE_GENAI_USE_VERTEXAI
-        from env automatically — matches this project's .env, no wiring needed.
+        from env automatically, matching this project's .env, no wiring needed.
     types.GenerateContentConfig has response_mime_type + response_schema for
         structured output; a pydantic BaseModel is an accepted schema type.
     GenerateContentResponse.parsed returns the schema instance directly.
@@ -28,7 +28,7 @@ from .config import MODEL, SAFETY_SETTINGS, describe_block_reason
 
 # Paragraph types that can carry a real-world entity worth clearance
 # research. "Character" (the cast list name, e.g. "JOHN") is deliberately
-# excluded — it's a role, not a real-world entity to clear.
+# excluded: it's a role, not a real-world entity to clear.
 _RELEVANT_TYPES = {"Scene Heading", "Action", "Dialogue"}
 
 
@@ -47,7 +47,7 @@ def parse_fdx(path: str) -> str:
     root = tree.getroot()
     content = root.find("Content")
     if content is None:
-        raise ValueError(f"{path}: no <Content> element — not a script FDX")
+        raise ValueError(f"{path}: no <Content> element, not a script FDX")
 
     lines = []
     for para in content.findall("Paragraph"):
@@ -89,10 +89,10 @@ businesses, trademarks, songs, real people, and real filming locations.
 Rules:
 - Only extract entities that are REAL and would need rights clearance.
   Fictional characters, invented company names, and made-up song titles
-  do not need clearance — skip them.
+  do not need clearance; skip them.
 - Use the exact name as it appears in the script.
 - Classify each as one of: brand, business, trademark, song, person, location.
-- If you are unsure whether something is real or fictional, include it — a
+- If you are unsure whether something is real or fictional, include it. A
   clearance researcher can rule it out later; missing a real entity is the
   worse failure.
 - Do not invent entities that are not present in the text.
@@ -107,7 +107,7 @@ def extract_entities(script_text: str, model: str = MODEL) -> list[dict]:
     """Gemini structured extraction: script text -> typed entity list.
 
     Returns the shape workflow.prepare_entities already validates:
-    [{"entity": ..., "entity_type": ...}, ...]. `context` is dropped here —
+    [{"entity": ..., "entity_type": ...}, ...]. `context` is dropped here;
     it exists for a human reviewing extraction quality, not for the research
     tool, which only takes entity/entity_type/session_id.
     """
@@ -119,7 +119,7 @@ def extract_entities(script_text: str, model: str = MODEL) -> list[dict]:
             response_mime_type="application/json",
             response_schema=ExtractedEntities,
             # Screenplay text is ordinary dramatic material, not a request
-            # to generate harmful content — see config.SAFETY_SETTINGS.
+            # to generate harmful content, see config.SAFETY_SETTINGS.
             safety_settings=SAFETY_SETTINGS,
         ),
     )

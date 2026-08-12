@@ -6,22 +6,22 @@ no PDF library is installed (checked: weasyprint, reportlab, fpdf2,
 pdfkit, xhtml2pdf are all absent from this environment) and this stage
 doesn't need one. HTML with inline CSS renders directly in the browser used
 to record the demo video, needs zero new dependencies, and lets every
-citation be an actual clickable link — a PDF viewer inside a screen
+citation be an actual clickable link: a PDF viewer inside a screen
 recording is a worse demo of "every claim shows its source" than a browser
 tab where a judge can see the link target in the status bar. No templating
-library either (jinja2 is not installed) — findings are structured dicts
+library either (jinja2 is not installed), so findings are structured dicts
 from verify_finding.py, not free text, so f-strings plus html.escape() on
 every interpolated value are enough and add nothing to audit.
 
 Ordering: findings needing attention first. A line producer scanning this
 during a shoot week wants to know what's blocking them, not read
-alphabetically. Order is ERROR (research itself failed — unresolved, needs
+alphabetically. Order is ERROR (research itself failed; unresolved, needs
 a human to re-run or investigate) > RED > AMBER > GREEN, entity name
 alphabetically within each tier for a stable, scannable read.
 
 verification_notes placement: inside a native <details> block per entity,
 collapsed by default. Not the main body (they're about what was DROPPED,
-not the finding itself — foregrounding them ahead of what survived would
+not the finding itself, and foregrounding them ahead of what survived would
 bury the actual clearance answer) and not omitted (the fact that claims
 were dropped is evidence the verification pass is working, and an auditor
 needs to be able to find it). <details> needs no JavaScript and is visible
@@ -65,7 +65,7 @@ def _risk_of(finding: dict) -> str:
 
 def _e(value) -> str:
     """Escape for safe HTML interpolation. Claim values and excerpts pass
-    through web content and model output — never trust them as markup."""
+    through web content and model output; never trust them as markup."""
     return html.escape(str(value), quote=True)
 
 
@@ -130,7 +130,7 @@ def _entity_section(finding: dict, anchor: str) -> str:
         {near_miss_html}"""
 
     # For a research-stage error, the error text already shown above IS the
-    # (only) verification note — showing it a second time in the details
+    # (only) verification note; showing it a second time in the details
     # block below would be pure duplication, not additional audit info.
     notes = finding.get("verification_notes") or [] if finding.get("status") == "ok" else []
     notes_html = ""
@@ -184,7 +184,7 @@ def build_report(findings: list[dict] | dict, *, script_name: str = "") -> str:
     HTML report string.
 
     Accepts either the raw list, or the dict shape the ADK Runner hands the
-    node downstream of a JoinNode ({"<upstream_node_name>": [...]}) — the
+    node downstream of a JoinNode ({"<upstream_node_name>": [...]}); the
     node wiring in workflow.py passes node_input straight through rather
     than assuming the wrapping key, since that key is just the upstream
     node's name and shouldn't be load-bearing here.
@@ -202,7 +202,7 @@ def build_report(findings: list[dict] | dict, *, script_name: str = "") -> str:
     anchors = [_entity_anchor(f.get("entity", ""), i) for i, f in enumerate(ordered)]
 
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    title = f"Clearance Report — {script_name}" if script_name else "Clearance Report"
+    title = f"Clearance Report: {script_name}" if script_name else "Clearance Report"
 
     counts = {"ERROR": 0, "RED": 0, "AMBER": 0, "GREEN": 0}
     for f in ordered:

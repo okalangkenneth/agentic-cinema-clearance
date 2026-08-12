@@ -3,8 +3,9 @@ __pycache__/
 *.pyc
 .env
 *.log
+.claude/
 
-# Local working notes — never committed. This repo is public.
+# Local working notes: never committed. This repo is public.
 NOTES.md
 My notes
 scratch/

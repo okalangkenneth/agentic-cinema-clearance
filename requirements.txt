@@ -2,7 +2,7 @@
 # 2.x gives us Workflow Runtime for deterministic fan-out/fan-in.
 google-adk>=2.6.0
 
-# Official Parallel SDK. NOTE: langchain-parallel was dropped — every
+# Official Parallel SDK. NOTE: langchain-parallel was dropped because every
 # published version pins parallel-web<0.6.0, a major version behind.
 parallel-web>=1.0.1
 

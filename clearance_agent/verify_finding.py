@@ -15,8 +15,8 @@ nothing" from "not checked".
 
 Per-source, never pooled: matches parallel_tool.py's
 _harvest_identifiers docstring. A claim is checked against the excerpts of
-the specific source it cites, not a blob of every source's excerpts —
-pooling is exactly the failure mode that attributed NAPSTER's serial number
+the specific source it cites, not a blob of every source's excerpts.
+Pooling is exactly the failure mode that attributed NAPSTER's serial number
 to a Queen song when excerpts were pooled across sources in an earlier
 version of this check.
 """
@@ -86,11 +86,11 @@ Rules:
 - Every claim must cite the url of the ONE source that states it. Do not
   combine information from two different sources into one claim.
 - If no source states a claim, write "{not_established}" for its value and
-  leave source_url empty. Do not fill gaps from your own knowledge — you
+  leave source_url empty. Do not fill gaps from your own knowledge; you
   may know things about this entity, but an uncited assertion is worthless
   in a clearance report.
 - A source mentioning the entity in passing does not "establish" ownership,
-  rights, or registration — only report what the source actually says.
+  rights, or registration. Only report what the source actually says.
 - List any near-miss entities visible in the sources (sibling brands,
   unrelated marks sharing a word) that you are deliberately excluding.
 
@@ -145,12 +145,12 @@ def _check_claim(claim: _Claim, sources_by_url: dict, notes: list[str], field: s
 
     source = sources_by_url.get(claim.source_url)
     if source is None:
-        notes.append(f"{field}: cited source_url {claim.source_url!r} is not one of this entity's sources — dropped")
+        notes.append(f"{field}: cited source_url {claim.source_url!r} is not one of this entity's sources, dropped")
         return {"value": NOT_ESTABLISHED, "source_url": ""}
 
     if not _grounded_in_source(value, source, numeric=numeric):
         notes.append(
-            f"{field}: {value!r} not found in the excerpts of the cited source ({claim.source_url}) — dropped"
+            f"{field}: {value!r} not found in the excerpts of the cited source ({claim.source_url}), dropped"
         )
         return {"value": NOT_ESTABLISHED, "source_url": ""}
 
@@ -165,7 +165,7 @@ def verify_finding(research_result: dict, model: str = MODEL) -> dict:
     rights_holder / registration_or_serial_number / registration_status /
     license_required (each {"value", "source_url"}), risk, risk_reasoning,
     discarded_near_misses, and verification_notes (claims the model drafted
-    that this pass dropped — kept for audit, not shown to end users as-is).
+    that this pass dropped, kept for audit, not shown to end users as-is).
     """
     entity = research_result.get("entity", "")
     entity_type = research_result.get("entity_type", "")
@@ -220,7 +220,7 @@ def verify_finding(research_result: dict, model: str = MODEL) -> dict:
             # Web excerpts being checked can themselves discuss violent,
             # explicit, or hateful subject matter (a news article about a
             # violent film, a song's slur-containing lyrics) without this
-            # call itself generating any of it — see config.SAFETY_SETTINGS.
+            # call itself generating any of it, see config.SAFETY_SETTINGS.
             safety_settings=SAFETY_SETTINGS,
         ),
     )

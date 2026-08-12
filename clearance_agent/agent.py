@@ -7,7 +7,7 @@ Verified against the installed package:
 Fan-out is currently the model calling the tool once per entity. That is the
 crude version and is deliberately temporary. Once this runs green, move to
 google.adk.Workflow (edges, max_concurrency) so the fan-out is a graph rather
-than a model decision — that is what makes it deterministic.
+than a model decision, which is what makes it deterministic.
 """
 
 import sys
@@ -53,7 +53,7 @@ stating it is clearly about that entity.
 
 `is_registry_mirror: true` marks pages mirroring official registry data
 (Justia, Trademarkia, uspto.report, easysong, SEC). Weight these above
-general web pages — but they are still secondary sources. The serial number
+general web pages, but they are still secondary sources. The serial number
 they carry is the key to the primary record at tsdr.uspto.gov.
 
 Search results routinely include near-miss entities: a sibling brand from
@@ -76,7 +76,7 @@ For each entity report:
 Every factual claim cites the source URL it came from.
 
 If the sources do not support a claim, write "not established by sources".
-Never fill a gap from your own knowledge — you may know who owns Coca-Cola,
+Never fill a gap from your own knowledge; you may know who owns Coca-Cola,
 but an uncited assertion is worthless in a clearance report.
 
 If the tool returns status "error", report the failure plainly. Do not
