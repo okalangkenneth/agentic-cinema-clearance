@@ -1,4 +1,4 @@
-# Clearance Agent — Spike
+# Clearance Agent-Spike
 
 Spike for **Agentic Cinema: The Blockbuster Hackathon** (Parallel track).
 
