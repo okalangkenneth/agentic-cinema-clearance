@@ -1,0 +1,16 @@
+# ADK 2.x confirmed available on PyPI (2.6.3 latest as of 2026-08-08).
+# 2.x gives us Workflow Runtime for deterministic fan-out/fan-in.
+google-adk>=2.6.0
+
+# Official Parallel SDK. NOTE: langchain-parallel was dropped — every
+# published version pins parallel-web<0.6.0, a major version behind.
+parallel-web>=1.0.1
+
+python-dotenv>=1.0.0
+
+# Deployment to Vertex AI Agent Engine.
+google-cloud-aiplatform[agent_engines,adk]>=1.101.0
+
+# Required by agent_engines.create() to serialize the agent. Not pulled in
+# by the [agent_engines] extra despite the error message claiming otherwise.
+cloudpickle==3.1.2

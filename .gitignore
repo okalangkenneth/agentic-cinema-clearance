@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+*.log
+
+# Local working notes — never committed. This repo is public.
+NOTES.md
+My notes
+scratch/
+
+# Local ADK session state and Windows crash dumps
+clearance_agent/.adk/
+*.stackdump
