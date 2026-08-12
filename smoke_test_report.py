@@ -44,6 +44,10 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 load_dotenv()
 
+# scratch/ is gitignored and won't exist on a fresh clone; this test writes
+# its output HTML there.
+os.makedirs("scratch", exist_ok=True)
+
 from google.genai import errors as genai_errors  # noqa: E402
 
 from clearance_agent.build_report import NOT_ESTABLISHED, build_report  # noqa: E402
