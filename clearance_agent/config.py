@@ -16,6 +16,7 @@ Model notes (2026-08-08):
 
 import os
 
+from google.genai import errors as genai_errors
 from google.genai import types
 
 MODEL = os.environ.get("CLEARANCE_MODEL", "gemini-3.6-flash")
@@ -98,6 +99,33 @@ def describe_block_reason(response) -> str | None:
             return f"candidate finished with reason {finish_reason}{detail}"
 
     return None
+
+
+def using_vertex() -> bool:
+    """True when this process is configured to call Gemini via Vertex AI
+    rather than the AI Studio API. Single source of truth for the same
+    check that used to live only in run_pipeline.py's error message (which
+    named "AI Studio" unconditionally, wrong on a Vertex run)."""
+    return os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "").upper() == "TRUE"
+
+
+def platform_name() -> str:
+    return "Vertex AI" if using_vertex() else "AI Studio"
+
+
+def is_quota_error(exc: BaseException) -> bool:
+    """True only for a 429/RESOURCE_EXHAUSTED from the Gemini API.
+
+    Deliberately NOT a bare `except Exception`: that would also swallow a
+    real bug (bad request, auth failure, malformed schema) behind the same
+    retry/fallback path. This is the one narrow check shared by every
+    quota-aware call site (smoke_test_report.py's Case A fallback,
+    run_pipeline.py's top-level error message, and verify_finding's retry
+    below) so the definition of "quota error" can't drift between them.
+    """
+    if not isinstance(exc, genai_errors.ClientError):
+        return False
+    return exc.code == 429 or (exc.status or "") == "RESOURCE_EXHAUSTED"
 
 
 def require_env(*names: str) -> None:

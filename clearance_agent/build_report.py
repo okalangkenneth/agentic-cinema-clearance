@@ -67,7 +67,16 @@ _RISK_LABEL = {
     "GREEN": "GREEN",
 }
 _RISK_COLOR = {
-    "ERROR": "#6b7280",
+    # ERROR sorts FIRST (ahead of even RED — a research failure needs a
+    # human before anything else) but until 2026-08-13 was colored the same
+    # muted gray as "not established" text and the subtitle, so an eye
+    # scanning for red read it as least urgent, not most. Not reusing RED
+    # itself: ERROR means "we couldn't research this," a different kind of
+    # problem than RED's "this is a high clearance risk," and conflating
+    # the two colors would blur that distinction. Violet has no other use
+    # in this palette, so it reads as "different and urgent" rather than
+    # "a fourth risk tier."
+    "ERROR": "#7c3aed",
     "RED": "#b91c1c",
     "AMBER": "#b45309",
     "GREEN": "#15803d",
@@ -113,12 +122,34 @@ class _EntityGroups(BaseModel):
     groups: list[list[str]]
 
 
+# brand/business/trademark are the "commercial identity" family: extraction
+# has already been observed (see NOTES.md) picking different labels from
+# this trio for the IDENTICAL real-world entity across runs ("NIKE OUTLET
+# STORE" as business in one run, brand in another) — the label is noisy,
+# not evidence of a different clearance subject, so these three are treated
+# as interchangeable for grouping. Nothing outside this set is: a 2026-08-13
+# real run grouped "Queen" (brand — a taxonomy-gap mistype, there is no
+# "band" entity_type) with "Bohemian Rhapsody" (song) into one row, hiding
+# that a song needs a sync/master licence and a band name needs name-and-
+# likeness clearance — two different clearance questions a production has
+# to clear separately. That failure is what _TYPE_FAMILY below exists to
+# prevent: it is a strong, structural signal fed to the model, not just a
+# stronger prompt instruction, because the prompt-only version is exactly
+# what produced the Queen/Bohemian Rhapsody merge in the first place.
+_TYPE_FAMILY = {"brand": "commercial", "business": "commercial", "trademark": "commercial"}
+
+
+def _type_family(entity_type: str) -> str:
+    return _TYPE_FAMILY.get(entity_type, entity_type)
+
+
 _GROUP_PROMPT = """\
 Below are entity names extracted separately from ONE screenplay and
-researched independently. Some may be different surface-form mentions of
-the SAME real-world clearance subject: a scene heading naming a store, an
-action line naming a design mark, and a dialogue line naming the brand can
-all refer to one thing a production would clear ONCE, not three times.
+researched independently, each with the entity_type the extractor assigned.
+Some may be different surface-form mentions of the SAME real-world clearance
+subject: a scene heading naming a store, an action line naming a design
+mark, and a dialogue line naming the brand can all refer to one thing a
+production would clear ONCE, not three times.
 
 Group names that clearly refer to the SAME underlying clearance subject.
 Do NOT group names that merely share a word but refer to different real-world
@@ -127,27 +158,54 @@ and must NOT be grouped. If you are not confident two names are the same
 subject, put them in separate groups; a missed grouping costs nothing, a
 wrong one hides a real clearance question.
 
+entity_type is a strong signal, not decoration:
+- "brand", "business", and "trademark" are the SAME family (extraction is
+  known to label the identical commercial entity differently across runs,
+  e.g. a store's scene-heading mention as "business" and its dialogue
+  mention as "brand"). Names in this family CAN be grouped together if they
+  clearly name the same commercial entity, regardless of which of these
+  three labels each one got.
+- Every other entity_type ("song", "person", "location", and anything else)
+  is its OWN family. NEVER group a name from one of these families with a
+  name from a different family, even if the names are related in the real
+  world and even if one seems to explain or belong to the other. A band and
+  one of its own songs are NOT the same clearance subject: the song needs a
+  synchronization and master-use licence, the band's name needs name-and-
+  likeness clearance, and a production must clear both, separately. The
+  same applies to a person and a company they founded, a location and a
+  business operating there, etc. — different entity_type FAMILIES are
+  always different clearance questions, no exceptions.
+
 Every name below must appear in exactly one group. A name with nothing to
 group with is its own group of one. Use the names EXACTLY as given, do not
 reword or invent any.
 
-Names:
+Names (name — entity_type):
 {names_block}
 """
 
 
-def _group_entity_names(names: list[str]) -> list[list[str]] | None:
+def _group_entity_names(named_entities: list[tuple[str, str]]) -> list[list[str]] | None:
     """Ask Gemini which entity names refer to the same clearance subject.
+
+    named_entities is (name, entity_type) pairs so the model can see type
+    alongside name — grouping on name alone is what let "Queen" (brand) and
+    "Bohemian Rhapsody" (song) merge on a real run; see _TYPE_FAMILY above.
 
     Returns None (never a partial/guessed result) on ANY failure: a network
     or quota error, a blocked response, or a response that does not
     validate. Validation requires the returned groups to cover every input
-    name EXACTLY once, no inventions, no omissions, no duplicates. This is
-    the same "don't trust model behavior, check it in code" pattern
-    verify_finding.py uses for claims, applied to a grouping decision
-    instead: not proof the check produces the RIGHT groups, but a guarantee
-    it never silently drops or fabricates an entity even if the model
-    misbehaves.
+    name EXACTLY once, no inventions, no omissions, no duplicates, AND
+    (new) every group to be internally consistent with _TYPE_FAMILY — a
+    group mixing families fails validation and the whole call falls back to
+    None, same as any other malformed response. This is a second,
+    independent backstop behind the prompt instruction: the prompt is what
+    a NEW cross-family merge like Queen/Bohemian Rhapsody is meant to
+    prevent going forward, but a prompt is not proof, and this check means
+    a model that ignores the instruction can't silently ship a bad merge
+    either — it degrades to one row per entity instead, this pass's
+    existing safe fallback. This is the same "don't trust model behavior,
+    check it in code" pattern verify_finding.py uses for claims.
 
     A broad except is deliberate and different from verify_finding.py's
     narrow quota-only catch: grouping only affects report PRESENTATION.
@@ -156,11 +214,15 @@ def _group_entity_names(names: list[str]) -> list[list[str]] | None:
     shipped silently, so there is nothing here worth distinguishing failure
     modes for.
     """
+    names = [n for n, _ in named_entities]
+    type_by_name = dict(named_entities)
     try:
         client = genai.Client()
         response = client.models.generate_content(
             model=MODEL,
-            contents=_GROUP_PROMPT.format(names_block="\n".join(f"- {n}" for n in names)),
+            contents=_GROUP_PROMPT.format(
+                names_block="\n".join(f"- {n} — {t}" for n, t in named_entities)
+            ),
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema=_EntityGroups,
@@ -174,6 +236,10 @@ def _group_entity_names(names: list[str]) -> list[list[str]] | None:
         flat = [n for g in groups for n in g]
         if sorted(flat) != sorted(names) or len(flat) != len(set(flat)):
             return None
+        for g in groups:
+            families = {_type_family(type_by_name[n]) for n in g}
+            if len(families) > 1:
+                return None
         return groups
     except Exception:
         return None
@@ -216,7 +282,8 @@ def _group_findings(findings: list[dict]) -> list[list[dict]]:
         return groups + [[f] for f in ok]
 
     by_name = {f.get("entity", ""): f for f in ok}
-    name_groups = _group_entity_names(list(by_name.keys()))
+    named_entities = [(name, f.get("entity_type", "")) for name, f in by_name.items()]
+    name_groups = _group_entity_names(named_entities)
     if name_groups is None:
         return groups + [[f] for f in ok]
 

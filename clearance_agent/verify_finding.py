@@ -38,13 +38,70 @@ can be perfectly grounded and still be the wrong shape for its field.
 """
 
 import re
+import sys
+import time
 from typing import Literal
 
 from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
 
-from .config import MODEL, SAFETY_SETTINGS, describe_block_reason
+from .config import MODEL, SAFETY_SETTINGS, describe_block_reason, is_quota_error
+
+# Retry-on-429 for this call site, added after the 2026-08-13 rehearsal
+# found 2 of 3 back-to-back Vertex runs dying here.
+#
+# Checked google.adk.workflow.RetryConfig by introspection before hand-
+# rolling anything (per the working rule). It exists as a field on Node
+# and DOES support retrying only on specific exception types (`exceptions:
+# list[str | type[BaseException]]`). It does NOT fit here: the Gemini SDK
+# raises the same `google.genai.errors.ClientError` class for the whole
+# 4xx family (429, 400, 403, 404, ...), distinguished only by an
+# instance attribute (`.code` / `.status`), not by a distinct exception
+# type. RetryConfig can only filter by type, so `exceptions=[ClientError]`
+# would also retry a real 400 (a malformed prompt, an actual bug) —
+# exactly the "silently hide a real error" the brief warns against. There
+# is no predicate/callable hook on RetryConfig to narrow it further.
+# Wrapping the call by hand, reusing the same is_quota_error() check
+# already proven narrow enough in smoke_test_report.py, is the fit here.
+#
+# No signal to size the backoff from: Vertex's 429 body carries no
+# quotaId/retryDelay breakdown (unlike AI Studio's, which at least names a
+# retryDelay even though that delay turned out to be misleading for the
+# daily cap). These numbers are a plain exponential backoff, not derived
+# from a documented Vertex limit.
+_RETRY_MAX_ATTEMPTS = 5
+_RETRY_INITIAL_DELAY = 5.0
+_RETRY_BACKOFF_FACTOR = 2.0
+_RETRY_MAX_DELAY = 30.0
+
+
+def _generate_with_retry(client: genai.Client, **kwargs):
+    """client.models.generate_content(**kwargs), retrying only on a 429/
+    RESOURCE_EXHAUSTED, up to _RETRY_MAX_ATTEMPTS total attempts. Any other
+    exception (including a non-quota ClientError) raises immediately on
+    the first attempt — see the module docstring above for why this isn't
+    RetryConfig."""
+    delay = _RETRY_INITIAL_DELAY
+    for attempt in range(1, _RETRY_MAX_ATTEMPTS + 1):
+        try:
+            return client.models.generate_content(**kwargs)
+        except Exception as exc:
+            if not is_quota_error(exc) or attempt == _RETRY_MAX_ATTEMPTS:
+                raise
+            wait = min(delay, _RETRY_MAX_DELAY)
+            # Genuine progress, not faked: a real retry actually happening,
+            # printed to stderr like ADK's own node-failure logging, so it's
+            # visible during both this reliability measurement and a live
+            # demo run rather than a silent stall the viewer can't explain.
+            print(
+                f"  [verify_finding] 429, retry {attempt}/{_RETRY_MAX_ATTEMPTS - 1} "
+                f"in {wait:.0f}s...",
+                file=sys.stderr,
+            )
+            time.sleep(wait)
+            delay *= _RETRY_BACKOFF_FACTOR
+    raise AssertionError("unreachable")  # loop always returns or raises
 
 _RISK = Literal["RED", "AMBER", "GREEN"]
 
@@ -241,7 +298,8 @@ def verify_finding(research_result: dict, model: str = MODEL) -> dict:
         }
 
     client = genai.Client()
-    response = client.models.generate_content(
+    response = _generate_with_retry(
+        client,
         model=model,
         contents=_VERIFY_PROMPT.format(
             entity=entity,

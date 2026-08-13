@@ -46,22 +46,10 @@ load_dotenv()
 
 from google.adk import Runner  # noqa: E402
 from google.adk.sessions import InMemorySessionService  # noqa: E402
-from google.genai import errors as genai_errors  # noqa: E402
 from google.genai import types  # noqa: E402
 
+from clearance_agent.config import is_quota_error, platform_name  # noqa: E402
 from clearance_agent.workflow import build_workflow  # noqa: E402
-
-
-def _is_quota_error(exc: Exception) -> bool:
-    """A real 429/RESOURCE_EXHAUSTED from Gemini, not a bug to swallow.
-
-    Same check as smoke_test_report.py's _is_quota_error, for the same
-    reason: a bare `except Exception` here would also hide a real bug in
-    the pipeline behind a "just quota" message.
-    """
-    if not isinstance(exc, genai_errors.ClientError):
-        return False
-    return exc.code == 429 or (exc.status or "") == "RESOURCE_EXHAUSTED"
 
 
 def _default_output_path(script_path: str) -> str:
@@ -104,30 +92,54 @@ async def _run(script_path: str, output_path: str, max_concurrency: int) -> None
     print(f"Running clearance pipeline on {script_path}")
     print(f"{elapsed()} parsing + extracting + deduplicating entities...")
 
-    async for event in runner.run_async(
-        user_id="pipeline",
-        session_id=session_id,
-        new_message=types.Content(role="user", parts=[types.Part(text="run")]),
-        state_delta={"script_path": script_path},
-    ):
-        output = event.output
-        if output is None:
-            continue
-        node = _node_base_name(event.node_info.path) if event.node_info else ""
+    # The 2026-08-13 rehearsal clocked a 33.5s stretch of the verification
+    # fan-out with nothing printing at all, and the last line on screen
+    # going into it ("researching concurrently...") was already stale by
+    # then (research had finished; verification just hadn't reported back
+    # yet). This ticks the same elapsed() clock every other line already
+    # uses, on its own, whenever 8s pass with nothing else printed.
+    # Deliberately not fake progress: no percentage, no invented stage name,
+    # just the real clock -- "showing elapsed time is honest and enough."
+    heartbeat_stop = asyncio.Event()
 
-        if node == "prepare_entities" and isinstance(output, list):
-            entity_total = len(output)
-            print(f"{elapsed()} {entity_total} entities after dedup, researching concurrently...")
-        elif node == "research_entities" and isinstance(output, dict) and "entity" in output:
-            status = "ok" if output.get("status") == "ok" else f"ERROR: {output.get('error')}"
-            print(f"{elapsed()}   research done  -> {output['entity']}  ({status})")
-        elif node == "verify_findings" and isinstance(output, dict) and "entity" in output:
-            verified_count += 1
-            tag = output.get("risk") or output.get("status")
-            total = f"/{entity_total}" if entity_total else ""
-            print(f"{elapsed()}   verified {verified_count}{total} -> {output['entity']}  [{tag}]")
-        elif node == "build_report" and isinstance(output, str):
-            html_report = output
+    async def _heartbeat(interval: float = 8.0) -> None:
+        while True:
+            try:
+                await asyncio.wait_for(heartbeat_stop.wait(), timeout=interval)
+                return
+            except asyncio.TimeoutError:
+                print(f"{elapsed()}   ...still working")
+
+    heartbeat_task = asyncio.create_task(_heartbeat())
+
+    try:
+        async for event in runner.run_async(
+            user_id="pipeline",
+            session_id=session_id,
+            new_message=types.Content(role="user", parts=[types.Part(text="run")]),
+            state_delta={"script_path": script_path},
+        ):
+            output = event.output
+            if output is None:
+                continue
+            node = _node_base_name(event.node_info.path) if event.node_info else ""
+
+            if node == "prepare_entities" and isinstance(output, list):
+                entity_total = len(output)
+                print(f"{elapsed()} {entity_total} entities after dedup, researching concurrently...")
+            elif node == "research_entities" and isinstance(output, dict) and "entity" in output:
+                status = "ok" if output.get("status") == "ok" else f"ERROR: {output.get('error')}"
+                print(f"{elapsed()}   research done  -> {output['entity']}  ({status})")
+            elif node == "verify_findings" and isinstance(output, dict) and "entity" in output:
+                verified_count += 1
+                tag = output.get("risk") or output.get("status")
+                total = f"/{entity_total}" if entity_total else ""
+                print(f"{elapsed()}   verified {verified_count}{total} -> {output['entity']}  [{tag}]")
+            elif node == "build_report" and isinstance(output, str):
+                html_report = output
+    finally:
+        heartbeat_stop.set()
+        await heartbeat_task
 
     total_elapsed = time.monotonic() - started
 
@@ -150,7 +162,9 @@ def main() -> None:
     ap.add_argument("script_path", help="path to a .fdx screenplay")
     ap.add_argument("-o", "--output", help="output HTML path (default: <script>_clearance_report.html)")
     ap.add_argument(
-        "--max-concurrency", type=int, default=8, help="max concurrent research/verify workers (default: 8)"
+        "--max-concurrency", type=int, default=4,
+        help="max concurrent research/verify workers (default: 4 -- see build_workflow()'s docstring "
+        "in workflow.py for the 2026-08-13 measurement behind this default)",
     )
     args = ap.parse_args()
 
@@ -172,15 +186,25 @@ def main() -> None:
     try:
         asyncio.run(_run(args.script_path, output_path, args.max_concurrency))
     except Exception as exc:
-        if _is_quota_error(exc):
-            raise SystemExit(
-                "error: Gemini quota exhausted (429 RESOURCE_EXHAUSTED). "
-                "AI Studio's free tier caps this model at both 20 requests/day and "
-                "5 requests/minute -- the concurrent verification fan-out this pipeline "
-                "runs is likely to hit the per-minute cap on its own. Try again in a "
-                "minute, tomorrow if the daily cap is what you hit, or set "
-                "GOOGLE_GENAI_USE_VERTEXAI=TRUE with a Vertex-enabled project for headroom."
-            )
+        if is_quota_error(exc):
+            platform = platform_name()
+            if using_vertex:
+                # verify_finding already retries a 429 with backoff (see
+                # clearance_agent/verify_finding.py); reaching here means
+                # every retry in that window was also rate-limited.
+                advice = (
+                    "Retries were already attempted and also hit the limit. "
+                    "Wait a minute for Vertex's per-minute-shaped quota to "
+                    "recover, or lower --max-concurrency."
+                )
+            else:
+                advice = (
+                    "AI Studio's free tier caps this model at both 20 requests/day "
+                    "and 5 requests/minute. Try again in a minute, tomorrow if the "
+                    "daily cap is what you hit, or set GOOGLE_GENAI_USE_VERTEXAI=TRUE "
+                    "with a Vertex-enabled project for headroom."
+                )
+            raise SystemExit(f"error: Gemini quota exhausted on {platform} (429 RESOURCE_EXHAUSTED). {advice}")
         raise SystemExit(f"error: pipeline failed: {type(exc).__name__}: {exc}")
 
 

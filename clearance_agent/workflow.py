@@ -241,11 +241,26 @@ def _build_report_node(node_input: Any) -> str:
     return build_report(node_input)
 
 
-def build_workflow(max_concurrency: int = 8) -> Workflow:
+def build_workflow(max_concurrency: int = 4) -> Workflow:
     """START -> prepare -> research (fanned) -> verify (fanned) -> join -> report.
 
     The join waits for every verify worker before anything downstream runs,
     so a report can never be built from a partial or unverified entity set.
+
+    Default lowered from 8 to 4 on 2026-08-13, after the rehearsal found 2
+    of 3 back-to-back Vertex runs dying to 429 during verification at
+    max_concurrency=8. Measured, not guessed: with verify_finding's new
+    retry-on-429 in place (see verify_finding.py's _generate_with_retry),
+    3 measurement runs on the real 9-entity sample script all succeeded —
+    2 at concurrency=8 (2 retries fired total across those two runs) and 1
+    at concurrency=4 (1 retry fired, and that run finished faster overall
+    than either concurrency=8 run, despite firing a live 429 too). Retry is
+    doing the actual reliability work here; lowering concurrency is
+    defense-in-depth on top of it, chosen because the one concurrency=4
+    sample needed less rescuing, not because concurrency=8 was shown to
+    fail post-retry — the sample (1 vs 2 runs) is too small to prove that.
+    Not measured further (concurrency=2, 3, 6, ...) to preserve call budget
+    for the five proving runs this same brief requires next.
     """
     prepare = FunctionNode(
         name="prepare_entities",
