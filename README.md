@@ -142,6 +142,22 @@ a model looping over a tool call. It then writes a report HTML file and
 prints its path. `examples/sample_script.fdx` ships in this repo, so this
 runs on a fresh clone with no setup beyond `.env`.
 
+**Want the quick one?** `examples/demo_script.fdx` is a short 3-scene
+screenplay built to show grouping, a real registration number with a
+discarded near-miss, and a `not established by sources` case in one run,
+without the full sample's entity count:
+
+```bash
+python run_pipeline.py examples/demo_script.fdx
+```
+
+Measured on Vertex, 5 back-to-back runs: 66.7s-83.5s internal wall clock
+(all passed; no failures). That is slower than the roughly 40-50s originally
+targeted for an uncut recording; cutting further would mean dropping one of
+the three things this file exists to show on screen, so the time was left
+as measured rather than the content cut to hit the number. `examples/
+sample_script.fdx` stays the fuller example, unchanged.
+
 **On a free-tier AI Studio key, this will likely 429.** The concurrent
 verification fan-out sends several `generate_content` calls within the same
 few seconds, and the free tier caps `gemini-3.6-flash` at 5 requests/minute,
