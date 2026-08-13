@@ -34,6 +34,10 @@ For every entity found in the script:
 - **A source URL for every single claim.**
 - **Near-misses that were considered and discarded**, and why. A
   same-named entity in a different class is the classic clearance trap.
+- **Near-identical mentions of the same clearance subject grouped into one
+  row** ("Nike", "NIKE OUTLET STORE" and "Nike swoosh" as one entry, not
+  three), while every surface form stays individually researched, verified
+  and fully visible in the detail section below it.
 
 Anything the sources do not establish is labelled **"not established by
 sources"** rather than left blank or filled in from the model's own
@@ -84,12 +88,15 @@ model deciding to loop over a tool call can. `run_pipeline.py` (below) drives
 this exact graph through a real ADK `Runner`, on the shipped sample script.
 
 Measured on 9 entities (`examples/sample_script.fdx`, full pipeline): after
-extraction (~13s), research and verification, the fanned stages, took 65.5s
-running concurrently versus 184.0s for the identical 9 entities through the
-same graph run sequentially (`max_concurrency=1`). That is a ~2.8x speedup.
-Total wall-clock for the full run: 78.8s. This supersedes an earlier
-3-entity, research-only figure, since this run covers more entities and both
-fanned stages on the same graph.
+extraction (~13-19s), research and verification, the fanned stages, took
+65.5s running concurrently versus 184.0s for the identical 9 entities
+through the same graph run sequentially (`max_concurrency=1`). That is a
+~2.8x speedup. This supersedes an earlier 3-entity, research-only figure,
+since this run covers more entities and both fanned stages on the same
+graph. Total wall-clock, including the near-identical-name grouping call
+described below: 90.9s on a real Vertex run against the shipped sample
+script, entity count unchanged from the measurement above (9), so the
+concurrent-vs-sequential comparison itself was not re-run.
 
 `adk run clearance_agent` talks to a simpler `Agent` wrapping the same
 `research_clearance` tool instead, where the model itself decides to call the
@@ -101,7 +108,7 @@ it is not the deterministic graph.
 | Component | Used for |
 |---|---|
 | Google Agent Development Kit (ADK) 2.x | Workflow graph, concurrent fan-out/fan-in |
-| Gemini | Entity extraction and claim drafting, both with structured output |
+| Gemini | Entity extraction, claim drafting and near-identical-name grouping, all with structured output |
 | Vertex AI Agent Engine | Hosting |
 | Parallel Search API | Live rights research, the load-bearing search layer |
 | Google Secret Manager | API key storage for the deployed agent |
@@ -197,12 +204,22 @@ Extraction is not fully deterministic between runs: the same unambiguous
 entity can occasionally be typed differently. This affects the label and
 which query template routes the search, not whether the entity is found.
 
-Deduplication merges exact name matches only. Near-identical names are
-deliberately left unmerged, because wrongly merging two distinct real-world
-entities loses a clearance risk, and that is the failure this tool exists to
-prevent. The trade-off is visible in practice: a single brand mentioned
-three different ways in a script can produce three separate research jobs
-and three rows in the report.
+Deduplication before research merges exact name matches only. Near-identical
+names ("Nike", "NIKE OUTLET STORE", "Nike swoosh") are deliberately left
+unmerged at that stage, because wrongly merging two distinct real-world
+entities into one research call loses a clearance risk, and that is the
+failure this tool exists to prevent: a brand and an unrelated place sharing
+a word must never be folded into one search.
+
+Instead, grouping happens after research and verification, in the report
+itself: a small Gemini call reasons about which already-independently-
+verified entities describe one real-world clearance subject, and the report
+shows them as one row with every surface form still listed and individually
+traceable to its own full, independently-checked detail section. If that
+call fails, is blocked, or returns anything that does not account for every
+input name exactly once, the report falls back to one row per entity
+(today's prior behaviour) rather than guessing; no entity that appears in
+the script can silently disappear from the report as a result of grouping.
 
 ## Licence
 

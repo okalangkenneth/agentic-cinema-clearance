@@ -19,6 +19,22 @@ the specific source it cites, not a blob of every source's excerpts.
 Pooling is exactly the failure mode that attributed NAPSTER's serial number
 to a Queen song when excerpts were pooled across sources in an earlier
 version of this check.
+
+Grounded-but-nonsensical values: a real full-script run verified Barack
+Obama's rights_holder to "Obama May Have Few Rights Over Use Of Name", an
+NPR headline. It passed _grounded_in_source because that string genuinely
+is a substring of a cited excerpt; the check does what it says, which is
+narrower than what a report reader needs. The model had correctly judged
+that no single party clearly holds the rights, then described that
+ambiguity in prose instead of using the NOT_ESTABLISHED escape hatch built
+for exactly this. Fixed at the drafting stage: rights_holder now has an
+explicit field description plus a prompt rule stating it is a NAME field,
+nothing else, and that describing ambiguity belongs in risk_reasoning.
+Re-running against a fresh set of real sources for the same entity 5 times
+produced NOT_ESTABLISHED every time; no shape check was added on top, per
+the brief's "prefer the cheapest fix that works" instruction. This does not
+strengthen _grounded_in_source itself, which was never the problem: a value
+can be perfectly grounded and still be the wrong shape for its field.
 """
 
 import re
@@ -54,7 +70,18 @@ class _Claim(BaseModel):
 
 
 class _DraftFinding(BaseModel):
-    rights_holder: _Claim
+    rights_holder: _Claim = Field(
+        description=(
+            f"The value must be the NAME of a specific person, organization, "
+            f"or estate: nothing else. Never a sentence, a headline, or a "
+            f"description of the situation. If the sources establish that "
+            f"ownership is contested, diffuse, or that no single party "
+            f'clearly holds the rights, write exactly "{NOT_ESTABLISHED}" '
+            f"for this field rather than describing that ambiguity in "
+            f"words; describing the ambiguity is what the risk_reasoning "
+            f"field is for, not this one."
+        )
+    )
     registration_or_serial_number: _Claim
     registration_status: _Claim
     license_required: _Claim
@@ -91,6 +118,14 @@ Rules:
   in a clearance report.
 - A source mentioning the entity in passing does not "establish" ownership,
   rights, or registration. Only report what the source actually says.
+- rights_holder is a NAME field: the specific person, organization, or
+  estate that holds the rights, and nothing else. If the sources only
+  discuss who MIGHT hold rights, describe contested or unclear ownership,
+  or explain the general situation without naming a specific current
+  holder, write "{not_established}" for rights_holder. Do not write a
+  sentence or a quoted headline into this field even if it is grounded in
+  a source; a true statement that is not a name is still the wrong shape
+  for this field.
 - List any near-miss entities visible in the sources (sibling brands,
   unrelated marks sharing a word) that you are deliberately excluding.
 
