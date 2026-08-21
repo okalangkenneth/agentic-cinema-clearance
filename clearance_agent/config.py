@@ -128,6 +128,29 @@ def is_quota_error(exc: BaseException) -> bool:
     return exc.code == 429 or (exc.status or "") == "RESOURCE_EXHAUSTED"
 
 
+def is_server_overload_error(exc: BaseException) -> bool:
+    """True only for a 503/UNAVAILABLE from the Gemini API.
+
+    A live Vertex run on 2026-08-21 raised `google.genai.errors.ServerError:
+    503 UNAVAILABLE. {'error': {'code': 503, 'message': 'The model is
+    overloaded. Please try again later.', 'status': 'UNAVAILABLE'}}` — a
+    second transient failure mode distinct from the 429/quota one above.
+
+    Introspected `google.genai.errors` (installed package, not training
+    data) before writing this: `APIError.raise_error` maps the ENTIRE
+    500-599 range to `ServerError` in one branch — there is no subclass
+    per status code. That means a bare `isinstance(exc, ServerError)` check
+    would also retry a bare 500 INTERNAL, which Google does not document as
+    transient the way 503 UNAVAILABLE/"high demand" is. So this stays as
+    narrow as `is_quota_error` above: it only fires for the specific
+    code/status pair Google's own docs call out as safe to retry, the same
+    way 429 was chosen over "any ClientError".
+    """
+    if not isinstance(exc, genai_errors.ServerError):
+        return False
+    return exc.code == 503 or (exc.status or "") == "UNAVAILABLE"
+
+
 def require_env(*names: str) -> None:
     """Fail loudly at startup rather than cryptically mid-run.
 

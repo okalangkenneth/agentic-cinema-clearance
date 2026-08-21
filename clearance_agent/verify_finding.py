@@ -46,10 +46,21 @@ from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
 
-from .config import MODEL, SAFETY_SETTINGS, describe_block_reason, is_quota_error
+from .config import (
+    MODEL,
+    SAFETY_SETTINGS,
+    describe_block_reason,
+    is_quota_error,
+    is_server_overload_error,
+)
 
-# Retry-on-429 for this call site, added after the 2026-08-13 rehearsal
-# found 2 of 3 back-to-back Vertex runs dying here.
+# Retry-on-429-or-503 for this call site, added after the 2026-08-13
+# rehearsal found 2 of 3 back-to-back Vertex runs dying on 429, then
+# widened after a 2026-08-21 live run died on a 503 ServerError instead
+# ("This model is currently experiencing high demand") — a second,
+# distinct transient failure mode. See config.is_server_overload_error's
+# docstring for why that check stays narrowed to 503/UNAVAILABLE rather
+# than the whole ServerError (500-599) range.
 #
 # Checked google.adk.workflow.RetryConfig by introspection before hand-
 # rolling anything (per the working rule). It exists as a field on Node
@@ -58,36 +69,50 @@ from .config import MODEL, SAFETY_SETTINGS, describe_block_reason, is_quota_erro
 # raises the same `google.genai.errors.ClientError` class for the whole
 # 4xx family (429, 400, 403, 404, ...), distinguished only by an
 # instance attribute (`.code` / `.status`), not by a distinct exception
-# type. RetryConfig can only filter by type, so `exceptions=[ClientError]`
-# would also retry a real 400 (a malformed prompt, an actual bug) —
-# exactly the "silently hide a real error" the brief warns against. There
-# is no predicate/callable hook on RetryConfig to narrow it further.
-# Wrapping the call by hand, reusing the same is_quota_error() check
-# already proven narrow enough in smoke_test_report.py, is the fit here.
+# type — and the same is true of `ServerError` across the whole 5xx
+# family. RetryConfig can only filter by type, so `exceptions=[ClientError,
+# ServerError]` would also retry a real 400 (a malformed prompt) or a bare
+# 500 (not documented as transient) — exactly the "silently hide a real
+# error" the brief warns against. There is no predicate/callable hook on
+# RetryConfig to narrow it further. Wrapping the call by hand, reusing the
+# same is_quota_error()/is_server_overload_error() checks, is the fit here.
 #
-# No signal to size the backoff from: Vertex's 429 body carries no
-# quotaId/retryDelay breakdown (unlike AI Studio's, which at least names a
-# retryDelay even though that delay turned out to be misleading for the
-# daily cap). These numbers are a plain exponential backoff, not derived
-# from a documented Vertex limit.
+# No signal to size the backoff from: neither Vertex's 429 body nor its
+# 503 body carries a quotaId/retryDelay breakdown (unlike AI Studio's 429,
+# which at least names a retryDelay even though that delay turned out to
+# be misleading for the daily cap). These numbers are a plain exponential
+# backoff, not derived from a documented Vertex limit, and are shared
+# across both retryable error types — Google documents both as "back off
+# and retry," not as needing different schedules.
 _RETRY_MAX_ATTEMPTS = 5
 _RETRY_INITIAL_DELAY = 5.0
 _RETRY_BACKOFF_FACTOR = 2.0
 _RETRY_MAX_DELAY = 30.0
 
 
+def _retryable_reason(exc: Exception) -> str | None:
+    """None if `exc` isn't one of the known transient failure modes;
+    otherwise a short label for the retry log line."""
+    if is_quota_error(exc):
+        return "429"
+    if is_server_overload_error(exc):
+        return "503"
+    return None
+
+
 def _generate_with_retry(client: genai.Client, **kwargs):
     """client.models.generate_content(**kwargs), retrying only on a 429/
-    RESOURCE_EXHAUSTED, up to _RETRY_MAX_ATTEMPTS total attempts. Any other
-    exception (including a non-quota ClientError) raises immediately on
-    the first attempt — see the module docstring above for why this isn't
-    RetryConfig."""
+    RESOURCE_EXHAUSTED or a 503/UNAVAILABLE, up to _RETRY_MAX_ATTEMPTS
+    total attempts. Any other exception (including a non-quota ClientError
+    or a non-503 ServerError) raises immediately on the first attempt —
+    see the module docstring above for why this isn't RetryConfig."""
     delay = _RETRY_INITIAL_DELAY
     for attempt in range(1, _RETRY_MAX_ATTEMPTS + 1):
         try:
             return client.models.generate_content(**kwargs)
         except Exception as exc:
-            if not is_quota_error(exc) or attempt == _RETRY_MAX_ATTEMPTS:
+            reason = _retryable_reason(exc)
+            if reason is None or attempt == _RETRY_MAX_ATTEMPTS:
                 raise
             wait = min(delay, _RETRY_MAX_DELAY)
             # Genuine progress, not faked: a real retry actually happening,
@@ -95,7 +120,7 @@ def _generate_with_retry(client: genai.Client, **kwargs):
             # visible during both this reliability measurement and a live
             # demo run rather than a silent stall the viewer can't explain.
             print(
-                f"  [verify_finding] 429, retry {attempt}/{_RETRY_MAX_ATTEMPTS - 1} "
+                f"  [verify_finding] {reason}, retry {attempt}/{_RETRY_MAX_ATTEMPTS - 1} "
                 f"in {wait:.0f}s...",
                 file=sys.stderr,
             )
